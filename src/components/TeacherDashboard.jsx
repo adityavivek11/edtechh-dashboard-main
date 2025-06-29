@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { BookOpen, HelpCircle, Video, Users, Home, LogOut, X, Loader2, Image as ImageIcon, GripVertical, Trash2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { BookOpen, HelpCircle, Video, Users, Home, LogOut, X, Loader2, Image as ImageIcon, GripVertical, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -12,38 +12,38 @@ export default function TeacherDashboard() {
   const { signOut, user } = useAuth();
   const navigate = useNavigate();
   
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await signOut();
       navigate("/login");
     } catch (error) {
       console.error("Error logging out:", error);
     }
-  };
+  }, [signOut, navigate]);
 
   // Get user's initials for avatar
-  const getUserInitials = (userData) => {
+  const getUserInitials = useCallback((userData) => {
     if (!userData?.user_metadata?.full_name) return 'U';
     const names = userData.user_metadata.full_name.split(' ');
     return names.map(name => name[0]).join('').toUpperCase();
-  };
+  }, []);
 
   // Get user's display name
-  const getDisplayName = (userData) => {
-    if (!userData?.user_metadata?.full_name) return 'User';
-    return userData.user_metadata.full_name;
-  };
+  const getDisplayName = useCallback((user) => {
+    if (!user?.user_metadata?.full_name) return 'User';
+    return user.user_metadata.full_name;
+  }, []);
 
-  const sidebarItems = [
+  const sidebarItems = useMemo(() => [
     { id: "doubts", label: "Doubts", icon: <HelpCircle size={20} /> },
     { id: "courses", label: "Courses", icon: <BookOpen size={20} /> },
     { id: "lectures", label: "Standalone Lectures", icon: <Video size={20} /> },
     { id: "carousel", label: "Carousel Images", icon: <ImageIcon size={20} /> },
     { id: "users", label: "Users", icon: <Users size={20} /> }
-  ];
+  ], []);
 
   // Dashboard content based on active tab
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     switch (activeTab) {
       case "doubts":
         return <DoubtsContent />;
@@ -58,63 +58,34 @@ export default function TeacherDashboard() {
       default:
         return <DoubtsContent />; // Default to doubts view
     }
-  };
+  }, [activeTab]);
+
+  const activeItemLabel = useMemo(() => 
+    sidebarItems.find(item => item.id === activeTab)?.label || "Doubts", 
+    [sidebarItems, activeTab]
+  );
+
+  const userInitials = useMemo(() => getUserInitials(user), [getUserInitials, user]);
+  const displayName = useMemo(() => getDisplayName(user), [getDisplayName, user]);
 
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
-      <div className="w-64 bg-blue-700 text-white flex flex-col">
-        <div className="p-4 border-b border-blue-800">
-          <h1 className="text-xl font-bold">Teacher Dashboard</h1>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto py-4">
-          <ul className="space-y-2 px-2">
-            {sidebarItems.map((item) => (
-              <li key={item.id}>
-                <button
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center w-full p-3 rounded-lg transition-colors ${
-                    activeTab === item.id
-                      ? "bg-blue-800 text-white"
-                      : "text-blue-100 hover:bg-blue-600"
-                  }`}
-                >
-                  <span className="mr-3">{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-        
-        <div className="p-4 border-t border-blue-800">
-          <button 
-            onClick={handleLogout}
-            className="flex items-center text-blue-100 hover:text-white w-full p-2"
-          >
-            <LogOut size={20} className="mr-3" />
-            <span>Logout</span>
-          </button>
-        </div>
-      </div>
+      <Sidebar 
+        sidebarItems={sidebarItems}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={handleLogout}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white shadow-sm p-4 flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-800">
-            {sidebarItems.find(item => item.id === activeTab)?.label || "Doubts"}
-          </h2>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center">
-              <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                {getUserInitials(user)}
-              </div>
-              <span className="ml-2 text-sm font-medium">{getDisplayName(user)}</span>
-            </div>
-          </div>
-        </header>
+        <Header 
+          activeItemLabel={activeItemLabel}
+          userInitials={userInitials}
+          displayName={displayName}
+        />
 
         {/* Dashboard Content */}
         <main className="flex-1 overflow-y-auto bg-gray-100 p-4">
@@ -125,8 +96,64 @@ export default function TeacherDashboard() {
   );
 }
 
+// Memoized Sidebar component
+const Sidebar = memo(({ sidebarItems, activeTab, setActiveTab, onLogout }) => (
+  <div className="w-64 bg-blue-700 text-white flex flex-col">
+    <div className="p-4 border-b border-blue-800">
+      <h1 className="text-xl font-bold">Teacher Dashboard</h1>
+    </div>
+    
+    <div className="flex-1 overflow-y-auto py-4">
+      <ul className="space-y-2 px-2">
+        {sidebarItems.map((item) => (
+          <li key={item.id}>
+            <button
+              onClick={() => setActiveTab(item.id)}
+              className={`flex items-center w-full p-3 rounded-lg transition-colors ${
+                activeTab === item.id
+                  ? "bg-blue-800 text-white"
+                  : "text-blue-100 hover:bg-blue-600"
+              }`}
+            >
+              <span className="mr-3">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+    
+    <div className="p-4 border-t border-blue-800">
+      <button 
+        onClick={onLogout}
+        className="flex items-center text-blue-100 hover:text-white w-full p-2"
+      >
+        <LogOut size={20} className="mr-3" />
+        <span>Logout</span>
+      </button>
+    </div>
+  </div>
+));
+
+// Memoized Header component
+const Header = memo(({ activeItemLabel, userInitials, displayName }) => (
+  <header className="bg-white shadow-sm p-4 flex justify-between items-center">
+    <h2 className="text-xl font-semibold text-gray-800">
+      {activeItemLabel}
+    </h2>
+    <div className="flex items-center space-x-4">
+      <div className="flex items-center">
+        <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
+          {userInitials}
+        </div>
+        <span className="ml-2 text-sm font-medium">{displayName}</span>
+      </div>
+    </div>
+  </header>
+));
+
 // Content components for different sections
-function HomeContent() {
+const HomeContent = memo(() => {
   const [stats, setStats] = useState({
     activeCourses: 0,
     pendingDoubts: 0,
@@ -135,11 +162,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchStats();
-  }, []);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -184,7 +207,11 @@ function HomeContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   if (loading) {
     return (
@@ -224,34 +251,35 @@ function HomeContent() {
       </div>
     </div>
   );
-}
+});
 
-function DoubtsContent() {
+const DoubtsContent = memo(() => {
   const [doubts, setDoubts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedDoubt, setSelectedDoubt] = useState(null);
   const [replyContent, setReplyContent] = useState('');
   const [replying, setReplying] = useState(false);
+  const [expandedDoubts, setExpandedDoubts] = useState(new Set());
   const [filters, setFilters] = useState({
-    status: 'all', // 'all', 'pending', 'answered'
+    status: 'all', // 'all', 'pending', 'answered', 'resolved'
     sortBy: 'newest' // 'newest', 'oldest'
   });
   const { user } = useAuth();
 
-  useEffect(() => {
-    fetchDoubts();
-  }, [filters]); // Refetch when filters change
-  
-  // Debug function to log the selected doubt
-  useEffect(() => {
-    if (selectedDoubt) {
-      console.log('Selected doubt:', selectedDoubt);
-      console.log('Replies:', selectedDoubt.replies);
-    }
-  }, [selectedDoubt]);
+  const toggleDoubtExpansion = useCallback((doubtId) => {
+    setExpandedDoubts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(doubtId)) {
+        newSet.delete(doubtId);
+      } else {
+        newSet.add(doubtId);
+      }
+      return newSet;
+    });
+  }, []);
 
-  const fetchDoubts = async () => {
+  const fetchDoubts = useCallback(async () => {
     try {
       setLoading(true);
       let query = supabase
@@ -275,9 +303,26 @@ function DoubtsContent() {
       // Then fetch related data for each doubt
       const doubtsWithDetails = await Promise.all(
         doubtsData.map(async (doubt) => {
-          const userData = { 
+          // Fetch actual user data
+          const { data: userData, error: userError } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', doubt.user_id)
+            .single();
+          
+          // Try alternative approaches if profiles table doesn't work
+          let finalDisplayName = 'Student';
+          
+          if (userData) {
+            finalDisplayName = userData.full_name || 'Student';
+          } else if (userError) {
+            // Some databases might store the user name directly in the doubts table
+            finalDisplayName = doubt.user_name || doubt.student_name || 'Student';
+          }
+          
+          const userInfo = {
             id: doubt.user_id,
-            display_name: `User ${doubt.user_id.substring(0, 8)}`
+            display_name: finalDisplayName
           };
 
           const { data: courseData } = await supabase
@@ -298,17 +343,38 @@ function DoubtsContent() {
             .eq('doubt_id', doubt.id)
             .order('created_at', { ascending: true });
 
-          const repliesWithUsers = (repliesData || []).map(reply => ({
-            ...reply,
-            user: { 
-              id: reply.user_id,
-              display_name: reply.is_teacher ? 'Teacher' : `User ${reply.user_id.substring(0, 8)}`
+          // Fetch user info for replies
+          const repliesWithUsers = await Promise.all((repliesData || []).map(async (reply) => {
+            if (reply.is_teacher) {
+              return {
+                ...reply,
+                user: { 
+                  id: reply.user_id,
+                  display_name: 'Teacher'
+                }
+              };
+            } else {
+              const { data: replyUserData } = await supabase
+                .from('profiles')
+                .select('full_name, email')
+                .eq('id', reply.user_id)
+                .single();
+
+              return {
+                ...reply,
+                user: { 
+                  id: reply.user_id,
+                  display_name: replyUserData ? 
+                    (replyUserData.full_name || replyUserData.email || 'Student') :
+                    'Student'
+                }
+              };
             }
           }));
           
           return {
             ...doubt,
-            user: userData,
+            user: userInfo,
             course: courseData,
             lecture: lectureData,
             replies: repliesWithUsers
@@ -323,16 +389,17 @@ function DoubtsContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
-  const handleReply = async (doubtId) => {
+  useEffect(() => {
+    fetchDoubts();
+  }, [fetchDoubts]); // Refetch when fetchDoubts changes
+
+  const handleReply = useCallback(async (doubtId) => {
     if (!replyContent.trim()) return;
 
     try {
       setReplying(true);
-      console.log('Posting reply for doubt:', doubtId);
-      console.log('Current user:', user);
-      console.log('Reply content:', replyContent);
 
       if (!user?.id) {
         throw new Error('User not authenticated');
@@ -346,55 +413,48 @@ function DoubtsContent() {
         user_id: user.id
       };
       
-      console.log('Inserting reply with data:', replyObject);
-      
       const { data: replyData, error: replyError } = await supabase
         .from('doubt_replies')
         .insert([replyObject]);
 
       if (replyError) {
-        console.error('Error inserting reply:', replyError);
         throw new Error(`Failed to insert reply: ${replyError.message}`);
       }
 
-      console.log('Reply inserted successfully:', replyData);
-
       // Then update the doubt status to "answered"
-      const { error: updateError } = await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from('doubts')
         .update({ status: 'answered' })
-        .eq('id', doubtId);
+        .eq('id', doubtId)
+        .select();
 
       if (updateError) {
-        console.error('Error updating doubt status:', updateError);
         throw new Error(`Failed to update doubt status: ${updateError.message}`);
       }
 
-      console.log('Doubt status updated successfully');
+      // Verify the update worked
+      if (!updateData || updateData.length === 0) {
+        throw new Error('Failed to update doubt status - no rows affected');
+      }
 
-      console.log('Successfully posted reply and updated doubt status');
+      // Add small delay to ensure database consistency
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Refresh the doubts list to show the new reply
+      // Refresh the doubts list to show the new reply and updated status
       await fetchDoubts();
       
       // Reset the reply form
       setReplyContent('');
       setSelectedDoubt(null);
-      
-      console.log('Reply form reset and doubts refreshed');
     } catch (error) {
       console.error('Error in handleReply:', error);
       setError(error.message || 'Failed to post reply. Please try again.');
     } finally {
       setReplying(false);
     }
-  };
+  }, [replyContent, user, fetchDoubts]);
 
-  const getFilteredDoubtsCount = (status) => {
-    return doubts.filter(doubt => 
-      status === 'all' ? true : doubt.status === status
-    ).length;
-  };
+
 
   if (loading) {
     return (
@@ -412,188 +472,294 @@ function DoubtsContent() {
     );
   }
 
+  // Apply client-side filtering if needed (database filtering is already applied)
+  const filteredDoubts = doubts;
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl font-bold text-gray-800">Student Doubts</h3>
-        <div className="flex items-center gap-4">
-          {/* Filter Controls */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Status:</label>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="all">All ({getFilteredDoubtsCount('all')})</option>
-                <option value="pending">Pending ({getFilteredDoubtsCount('pending')})</option>
-                <option value="answered">Answered ({getFilteredDoubtsCount('answered')})</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Sort:</label>
-              <select
-                value={filters.sortBy}
-                onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
-                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-              </select>
-            </div>
+      {/* Simple Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white">
+        <h2 className="text-2xl font-bold mb-2">Student Doubts & Questions</h2>
+        <p className="text-blue-100">Manage and respond to student queries efficiently</p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">Status:</label>
+            <select
+              value={filters.status}
+              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="answered">Answered</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">Sort by:</label>
+            <select
+              value={filters.sortBy}
+              onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <span>Showing {filteredDoubts.length} {filteredDoubts.length === 1 ? 'doubt' : 'doubts'}</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course/Lecture</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Question</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {doubts.map((doubt) => (
-                <tr key={doubt.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                        {doubt.user?.display_name?.[0] || 'U'}
-                      </div>
-                      <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900">
-                          {doubt.user?.display_name || `User ${doubt.user_id?.substring(0, 8) || 'Unknown'}`}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(doubt.created_at).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{doubt.course?.title}</div>
-                    <div className="text-xs text-gray-500">{doubt.lecture?.title}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{doubt.title}</div>
-                    <div className="text-sm text-gray-500 mt-1">{doubt.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      doubt.status === 'answered' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {doubt.status === 'answered' ? 'Answered' : 'Pending'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button
-                      onClick={() => {
-                        console.log('Toggling selected doubt:', doubt);
-                        setSelectedDoubt(selectedDoubt?.id === doubt.id ? null : doubt);
-                      }}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      {selectedDoubt?.id === doubt.id ? 'Hide Replies' : 'View/Reply'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Main Content Area */}
+      {filteredDoubts.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+          <HelpCircle className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No doubts yet</h3>
+          <p className="text-gray-500 max-w-md mx-auto">
+            When students submit questions, they'll appear here for you to review and respond to.
+          </p>
         </div>
-
-        {/* Reply Section */}
-        {selectedDoubt && (
-          <div className="border-t border-gray-200 p-4">
-            <div className="space-y-4">
-              <h4 className="text-sm font-medium text-gray-700">Replies</h4>
-              {selectedDoubt.replies && selectedDoubt.replies.length > 0 ? (
-                <div className="space-y-4">
-                  {selectedDoubt.replies.map((reply) => (
-                    <div key={reply.id} className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center">
-                          <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                            {reply.is_teacher ? 'T' : (reply.user?.display_name?.[0] || 'U')}
-                          </div>
-                          <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">
-                              {reply.is_teacher 
-                                ? 'Teacher' 
-                                : (reply.user?.display_name || `User ${(reply.user_id || 'unknown').substring(0, 8)}`)}
-                              {reply.is_teacher && (
-                                <span className="ml-2 text-xs text-blue-600">(Teacher)</span>
-                              )}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {new Date(reply.created_at).toLocaleString()}
-                            </div>
-                          </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredDoubts.map((doubt) => {
+            const isExpanded = expandedDoubts.has(doubt.id);
+            return (
+              <div key={doubt.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                {/* Compact Doubt Header */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      {/* Question Title and Status */}
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900 flex-1 mr-3">{doubt.title}</h3>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            doubt.status === 'answered' 
+                              ? 'bg-green-100 text-green-700' 
+                              : doubt.status === 'resolved'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}>
+                            {doubt.status === 'answered' 
+                              ? '✓ Answered' 
+                              : doubt.status === 'resolved'
+                              ? '✅ Resolved'
+                              : '⏱ Pending'}
+                          </span>
+                          <button
+                            onClick={() => toggleDoubtExpansion(doubt.id)}
+                            className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                            title={isExpanded ? "Collapse conversation" : "Expand conversation"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-5 w-5 text-gray-500" />
+                            ) : (
+                              <ChevronRight className="h-5 w-5 text-gray-500" />
+                            )}
+                          </button>
                         </div>
                       </div>
-                      <div className="mt-2 text-sm text-gray-700">
-                        {reply.content}
+
+                      {/* Description */}
+                      <p className="text-gray-700 text-sm mb-3 line-clamp-2">{doubt.description}</p>
+
+                      {/* Meta Info */}
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                                                 <div className="flex items-center gap-1">
+                           <div className="h-6 w-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium text-xs">
+                             {doubt.user?.display_name?.[0] || 'S'}
+                           </div>
+                           <span>{doubt.user?.display_name || 'Student'}</span>
+                         </div>
+                        <span>•</span>
+                        <div className="flex items-center gap-1">
+                          <BookOpen className="h-3 w-3" />
+                          <span>{doubt.course?.title}</span>
+                        </div>
+                        <span>•</span>
+                        <span>
+                          {new Date(doubt.created_at).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                        {doubt.replies && doubt.replies.length > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-blue-600 font-medium">
+                              {doubt.replies.length} {doubt.replies.length === 1 ? 'reply' : 'replies'}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">No replies yet.</p>
-              )}
 
-              <div className="mt-4">
-                <textarea
-                  value={replyContent}
-                  onChange={(e) => setReplyContent(e.target.value)}
-                  placeholder="Type your reply..."
-                  rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={() => {
-                      console.log('Submitting reply for doubt ID:', selectedDoubt.id);
-                      handleReply(selectedDoubt.id);
-                    }}
-                    disabled={replying || !replyContent.trim()}
-                    className={`px-4 py-2 rounded-md text-white ${
-                      replying || !replyContent.trim()
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                  >
-                    {replying ? 'Replying...' : 'Reply'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+                {/* Expandable Conversation Section */}
+                {isExpanded && (
+                  <div className="border-t bg-gray-50">
+                    <div className="p-4">
+                      {/* Full Description */}
+                      <div className="mb-4 p-3 bg-white rounded-lg">
+                        <h4 className="font-medium text-gray-900 mb-2">Question Details</h4>
+                        <p className="text-gray-700 leading-relaxed">{doubt.description}</p>
+                      </div>
+
+                      {/* Course/Lecture Info */}
+                      {doubt.lecture?.title && (
+                        <div className="mb-4 p-3 bg-white rounded-lg">
+                          <div className="flex items-center gap-2 text-sm">
+                            <BookOpen className="h-4 w-4 text-blue-500" />
+                            <span className="font-medium text-gray-700">{doubt.course?.title}</span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-600">{doubt.lecture.title}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Conversation Thread */}
+                      <div className="mb-4">
+                                                 <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                           💬 Conversation
+                           {doubt.replies && doubt.replies.length > 0 && (
+                             <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
+                               {doubt.replies.length} {doubt.replies.length === 1 ? 'reply' : 'replies'}
+                             </span>
+                           )}
+                         </h4>
+                   
+                         {doubt.replies && doubt.replies.length > 0 ? (
+                           <div className="space-y-3 mb-4">
+                             {doubt.replies.map((reply, index) => (
+                               <div key={reply.id} className={`flex ${reply.is_teacher ? 'justify-end' : 'justify-start'}`}>
+                                 <div className={`max-w-2xl ${reply.is_teacher ? 'order-2' : 'order-1'}`}>
+                                   <div className={`flex items-start gap-2 ${reply.is_teacher ? 'flex-row-reverse' : 'flex-row'}`}>
+                                     <div className={`h-6 w-6 rounded-full flex items-center justify-center text-white font-semibold text-xs ${
+                                       reply.is_teacher 
+                                         ? 'bg-gradient-to-br from-green-500 to-green-600' 
+                                         : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                                     }`}>
+                                       {reply.is_teacher ? '👨‍🏫' : (reply.user?.display_name?.[0] || 'U')}
+                                     </div>
+                                     <div className={`flex-1 ${reply.is_teacher ? 'text-right' : 'text-left'}`}>
+                                       <div className={`inline-block max-w-full p-3 rounded-lg text-sm ${
+                                         reply.is_teacher 
+                                           ? 'bg-green-500 text-white rounded-br-none' 
+                                           : 'bg-gray-100 text-gray-900 rounded-bl-none'
+                                       }`}>
+                                         <div className="flex items-center gap-2 mb-1">
+                                                                                    <span className="font-semibold text-xs">
+                                           {reply.is_teacher 
+                                             ? '👨‍🏫 Teacher' 
+                                             : (reply.user?.display_name || 'Student')}
+                                         </span>
+                                           <span className={`text-xs ${reply.is_teacher ? 'text-green-100' : 'text-gray-500'}`}>
+                                             {new Date(reply.created_at).toLocaleString('en-US', {
+                                               month: 'short',
+                                               day: 'numeric',
+                                               hour: '2-digit',
+                                               minute: '2-digit'
+                                             })}
+                                           </span>
+                                         </div>
+                                         <p className="leading-relaxed">{reply.content}</p>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         ) : (
+                           <div className="text-center py-6 mb-4">
+                             <div className="bg-white rounded-full w-10 h-10 flex items-center justify-center mx-auto mb-2">
+                               <HelpCircle className="h-5 w-5 text-gray-400" />
+                             </div>
+                             <p className="text-gray-500 text-sm">No replies yet</p>
+                             <p className="text-gray-400 text-xs">Be the first to help this student!</p>
+                           </div>
+                         )}
+
+                         {/* Reply Input */}
+                         <div className="bg-white rounded-lg p-3">
+                           <div className="flex items-center gap-2 mb-2">
+                             <div className="h-6 w-6 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white font-semibold text-xs">
+                               👨‍🏫
+                             </div>
+                             <div>
+                               <p className="font-medium text-gray-900 text-xs">Reply as Teacher</p>
+                             </div>
+                           </div>
+                           
+                           <textarea
+                             value={selectedDoubt?.id === doubt.id ? replyContent : ''}
+                             onChange={(e) => {
+                               setReplyContent(e.target.value);
+                               if (selectedDoubt?.id !== doubt.id) {
+                                 setSelectedDoubt(doubt);
+                               }
+                             }}
+                             placeholder="Type your response to help the student..."
+                             rows="2"
+                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent resize-none mb-2 text-sm"
+                           />
+                           
+                           <div className="flex justify-end">
+                             <button
+                               onClick={() => {
+                                 setSelectedDoubt(doubt);
+                                 handleReply(doubt.id);
+                               }}
+                               disabled={replying || !replyContent.trim() || selectedDoubt?.id !== doubt.id}
+                               className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
+                                 replying || !replyContent.trim() || selectedDoubt?.id !== doubt.id
+                                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                   : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg'
+                               }`}
+                             >
+                               {replying && selectedDoubt?.id === doubt.id ? (
+                                 <div className="flex items-center gap-2">
+                                   <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                   Posting...
+                                 </div>
+                               ) : (
+                                 'Send Reply'
+                               )}
+                             </button>
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+                 )}
+               </div>
+             );
+           })}
+         </div>
+      )}
     </div>
   );
-}
+});
 
-function CoursesContent() {
+const CoursesContent = memo(() => {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchCourses();
-  }, []);
-
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async () => {
     try {
       setLoading(true);
       // Fetch courses and their related lectures count
@@ -612,13 +778,17 @@ function CoursesContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAddNewCourse = () => {
+  useEffect(() => {
+    fetchCourses();
+  }, [fetchCourses]);
+
+  const handleAddNewCourse = useCallback(() => {
     navigate('/courses/new');
-  };
+  }, [navigate]);
 
-  const handleDeleteCourse = async (courseId) => {
+  const handleDeleteCourse = useCallback(async (courseId) => {
     if (!window.confirm('Are you sure you want to delete this course? This action cannot be undone.')) {
       return;
     }
@@ -650,12 +820,12 @@ function CoursesContent() {
     } finally {
       setDeleting(false);
     }
-  };
+  }, [fetchCourses]);
 
-  const formatPrice = (price) => {
+  const formatPrice = useCallback((price) => {
     if (!price) return 'Free';
     return price;
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -737,9 +907,9 @@ function CoursesContent() {
       </div>
     </div>
   );
-}
+});
 
-function LecturesContent() {
+const LecturesContent = memo(() => {
   const [lectures, setLectures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -754,11 +924,7 @@ function LecturesContent() {
     is_active: true
   });
 
-  useEffect(() => {
-    fetchLectures();
-  }, []);
-
-  const fetchLectures = async () => {
+  const fetchLectures = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -774,9 +940,13 @@ function LecturesContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreateLecture = async () => {
+  useEffect(() => {
+    fetchLectures();
+  }, [fetchLectures]);
+
+  const handleCreateLecture = useCallback(async () => {
     try {
       setSaving(true);
       const { data, error } = await supabase
@@ -802,9 +972,9 @@ function LecturesContent() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [newLecture, fetchLectures]);
 
-  const handleDeleteLecture = async (lectureId) => {
+  const handleDeleteLecture = useCallback(async (lectureId) => {
     if (!window.confirm('Are you sure you want to delete this lecture? This action cannot be undone.')) {
       return;
     }
@@ -824,7 +994,7 @@ function LecturesContent() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [lectures]);
 
   if (loading) {
     return (
@@ -1052,9 +1222,9 @@ function LecturesContent() {
       )}
     </div>
   );
-}
+});
 
-function CarouselContent() {
+const CarouselContent = memo(() => {
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1069,11 +1239,7 @@ function CarouselContent() {
     display_order: 0
   });
 
-  useEffect(() => {
-    fetchCarouselImages();
-  }, []);
-
-  const fetchCarouselImages = async () => {
+  const fetchCarouselImages = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -1089,9 +1255,13 @@ function CarouselContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAddImage = async () => {
+  useEffect(() => {
+    fetchCarouselImages();
+  }, [fetchCarouselImages]);
+
+  const handleAddImage = useCallback(async () => {
     try {
       setSaving(true);
       const { data, error } = await supabase
@@ -1119,9 +1289,9 @@ function CarouselContent() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [images, newImage]);
 
-  const handleDeleteImage = async (imageId) => {
+  const handleDeleteImage = useCallback(async (imageId) => {
     if (!window.confirm('Are you sure you want to delete this image? This action cannot be undone.')) {
       return;
     }
@@ -1141,9 +1311,9 @@ function CarouselContent() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [images]);
 
-  const handleDisplayOrderChange = async (imageId, newOrder) => {
+  const handleDisplayOrderChange = useCallback(async (imageId, newOrder) => {
     try {
       setSaving(true);
       
@@ -1171,7 +1341,7 @@ function CarouselContent() {
     } finally {
       setSaving(false);
     }
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -1392,9 +1562,9 @@ function CarouselContent() {
       )}
     </div>
   );
-}
+});
 
-function UsersContent() {
+const UsersContent = memo(() => {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">
       <h2 className="text-xl font-semibold mb-6">User Management</h2>
@@ -1404,9 +1574,9 @@ function UsersContent() {
       </div>
     </div>
   );
-}
+});
 
-function StatCard({ title, value, icon }) {
+const StatCard = memo(({ title, value, icon }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6">
       <div className="flex items-start justify-between">
@@ -1420,4 +1590,4 @@ function StatCard({ title, value, icon }) {
       </div>
     </div>
   );
-} 
+});

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { supabase } from '../lib/supabase';
 
-const UserManagementSidebar = () => {
+const UserManagementSidebar = memo(() => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // Fetch all users from the profiles table
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       console.log('Fetching users from profiles table...');
@@ -48,13 +48,14 @@ const UserManagementSidebar = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     // Initial fetch
     fetchUsers();
 
-    // Set up real-time subscription
+    // Set up real-time subscription with debouncing
+    let timeoutId;
     const subscription = supabase
       .channel('profiles-changes')
       .on('postgres_changes', 
@@ -65,7 +66,11 @@ const UserManagementSidebar = () => {
         }, 
         (payload) => {
           console.log('Profile change received:', payload);
-          fetchUsers(); // Refresh the user list when changes occur
+          // Debounce the fetch to prevent excessive calls
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+            fetchUsers();
+          }, 500);
         }
       )
       .subscribe();
@@ -74,12 +79,13 @@ const UserManagementSidebar = () => {
 
     // Cleanup subscription on component unmount
     return () => {
+      clearTimeout(timeoutId);
       supabase.removeChannel(subscription);
     };
-  }, []);
+  }, [fetchUsers]);
 
   // Toggle isAllowed status for a user
-  const toggleUserStatus = async (userId, currentStatus) => {
+  const toggleUserStatus = useCallback(async (userId, currentStatus) => {
     try {
       const newStatus = !currentStatus;
       console.log(`Toggling user ${userId} status from ${currentStatus} to ${newStatus}`);
@@ -124,15 +130,15 @@ const UserManagementSidebar = () => {
       console.error('Error updating user status:', err);
       setError(err.message);
     }
-  };
+  }, []);
 
   // Helper function to get the isAllowed value, handling potential case sensitivity issues
-  const getUserAllowedStatus = (user) => {
+  const getUserAllowedStatus = useCallback((user) => {
     // Attempt to find isAllowed with various case possibilities
     return user.isAllowed !== undefined ? user.isAllowed : 
            user.isallowed !== undefined ? user.isallowed :
            user.ISALLOWED !== undefined ? user.ISALLOWED : false;
-  };
+  }, []);
 
   if (loading) return <div className="p-4">Loading users...</div>;
   if (error) return <div className="p-4 text-red-500">Error: {error}</div>;
@@ -154,27 +160,37 @@ const UserManagementSidebar = () => {
           {users.map(user => {
             const isAllowed = getUserAllowedStatus(user);
             return (
-              <li key={user.id} className="flex items-center justify-between p-2 border-b">
-                <span className="text-sm truncate">{user.full_name}</span>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={isAllowed}
-                    onChange={() => toggleUserStatus(user.id, isAllowed)}
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  <span className="ml-2 text-xs text-gray-700">
-                    {isAllowed ? 'Allowed' : 'Blocked'}
-                  </span>
-                </label>
-              </li>
+              <UserItem 
+                key={user.id} 
+                user={user} 
+                isAllowed={isAllowed} 
+                onToggle={toggleUserStatus} 
+              />
             );
           })}
         </ul>
       )}
     </div>
   );
-};
+});
+
+// Memoized UserItem component to prevent unnecessary re-renders
+const UserItem = memo(({ user, isAllowed, onToggle }) => (
+  <li className="flex items-center justify-between p-2 border-b">
+    <span className="text-sm truncate">{user.full_name}</span>
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        className="sr-only peer"
+        checked={isAllowed}
+        onChange={() => onToggle(user.id, isAllowed)}
+      />
+      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+      <span className="ml-2 text-xs text-gray-700">
+        {isAllowed ? 'Allowed' : 'Blocked'}
+      </span>
+    </label>
+  </li>
+));
 
 export default UserManagementSidebar; 
