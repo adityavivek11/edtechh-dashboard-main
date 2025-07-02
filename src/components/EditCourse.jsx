@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase";   
 import { Plus, Trash2, GripVertical, X, Loader2, Folder, FolderPlus } from "lucide-react";
 import VideoUploader from "./VideoUploader";
 import ImageUploader from "./ImageUploader";
