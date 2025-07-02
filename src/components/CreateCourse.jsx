@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { X } from 'lucide-react';
+import { X, Plus, Trash2, Folder } from 'lucide-react';
 import ImageUploader from './ImageUploader';
 
 export default function CreateCourse() {
@@ -17,6 +17,10 @@ export default function CreateCourse() {
     price: '',
     is_active: true
   });
+
+  // Folder management state
+  const [folders, setFolders] = useState([]);
+  const [newFolderName, setNewFolderName] = useState('');
 
   useEffect(() => {
     const getUser = async () => {
@@ -45,6 +49,22 @@ export default function CreateCourse() {
     }));
   };
 
+  const handleAddFolder = () => {
+    if (!newFolderName.trim()) return;
+    
+    const newFolder = {
+      id: Date.now(), // temporary ID for frontend
+      folder_name: newFolderName.trim()
+    };
+    
+    setFolders([...folders, newFolder]);
+    setNewFolderName('');
+  };
+
+  const handleRemoveFolder = (folderId) => {
+    setFolders(folders.filter(folder => folder.id !== folderId));
+  };
+
   const handleSaveCourse = async () => {
     try {
       setSaving(true);
@@ -56,6 +76,23 @@ export default function CreateCourse() {
         .single();
 
       if (courseError) throw courseError;
+
+      // Create folders if any were added
+      if (folders.length > 0) {
+        const foldersData = folders.map(folder => ({
+          folder_name: folder.folder_name,
+          course_id: savedCourse.id
+        }));
+
+        const { error: foldersError } = await supabase
+          .from('folders')
+          .insert(foldersData);
+
+        if (foldersError) {
+          console.error('Error creating folders:', foldersError);
+          // Don't throw error, just log it as folders are optional
+        }
+      }
 
       // Redirect to dashboard with courses active
       navigate('/dashboard', { 
@@ -183,6 +220,55 @@ export default function CreateCourse() {
           </div>
         </div>
 
+        {/* Course Folders Section (Optional) */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-medium text-gray-800 mb-4">Course Folders (Optional)</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Create folders to organize your lectures. You can also create folders later when editing the course.
+          </p>
+          
+          {/* Add Folder Input */}
+          <div className="flex gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="Enter folder name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onKeyPress={(e) => e.key === 'Enter' && handleAddFolder()}
+            />
+            <button
+              onClick={handleAddFolder}
+              disabled={!newFolderName.trim()}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+            >
+              <Plus size={16} />
+              Add Folder
+            </button>
+          </div>
+
+          {/* Folders List */}
+          {folders.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-gray-700">Created Folders:</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {folders.map((folder) => (
+                  <div key={folder.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                    <Folder className="text-blue-500" size={16} />
+                    <span className="flex-1 text-sm">{folder.folder_name}</span>
+                    <button
+                      onClick={() => handleRemoveFolder(folder.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Action Buttons */}
         <div className="flex justify-end gap-4">
           <button
@@ -204,6 +290,12 @@ export default function CreateCourse() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mt-4 bg-red-50 text-red-600 p-4 rounded-lg">
+          {error}
+        </div>
+      )}
     </div>
   );
 } 

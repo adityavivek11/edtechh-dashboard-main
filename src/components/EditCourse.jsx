@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Plus, Trash2, GripVertical, X, Loader2 } from "lucide-react";
+import { Plus, Trash2, GripVertical, X, Loader2, Folder, FolderPlus } from "lucide-react";
 import VideoUploader from "./VideoUploader";
 import ImageUploader from "./ImageUploader";
 
@@ -21,14 +21,20 @@ export default function EditCourse() {
   });
 
   const [lectures, setLectures] = useState([]);
+  const [folders, setFolders] = useState([]);
   const [newLecture, setNewLecture] = useState({
     title: "",
     description: "",
     video_url: "",
     thumbnail_url: "",
     duration: "",
-    order: 0
+    order: 0,
+    folder_id: ""
   });
+
+  // Folder management state
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   useEffect(() => {
     fetchCourseData();
@@ -47,15 +53,28 @@ export default function EditCourse() {
       if (courseError) throw courseError;
       setCourse(courseData);
 
-      // Fetch course lectures
+      // Fetch course folders
+      const { data: foldersData, error: foldersError } = await supabase
+        .from('folders')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('created_at');
+
+      if (foldersError) throw foldersError;
+      setFolders(foldersData || []);
+
+      // Fetch course lectures with folder information
       const { data: lecturesData, error: lecturesError } = await supabase
         .from('lectures')
-        .select('*')
+        .select(`
+          *,
+          folders(id, folder_name)
+        `)
         .eq('course_id', courseId)
         .order('order');
 
       if (lecturesError) throw lecturesError;
-      setLectures(lecturesData);
+      setLectures(lecturesData || []);
     } catch (error) {
       console.error('Error fetching course data:', error);
       setError(error.message);
@@ -102,29 +121,34 @@ export default function EditCourse() {
     try {
       setSaving(true);
       
+      const lectureData = {
+        ...newLecture,
+        course_id: courseId,
+        order: lectures.length + 1,
+        folder_id: newLecture.folder_id || null
+      };
+
       const { data, error } = await supabase
         .from('lectures')
-        .insert([
-          {
-            ...newLecture,
-            course_id: courseId,
-            order: lectures.length + 1
-          }
-        ])
+        .insert([lectureData])
         .select();
 
       if (error) {
         console.error('❌ Supabase error:', error);
         throw error;
       }
-      setLectures([...lectures, data[0]]);
+      
+      // Refresh all data to get updated folder information
+      await fetchCourseData();
+      
       setNewLecture({
         title: "",
         description: "",
         video_url: "",
         thumbnail_url: "",
         duration: "",
-        order: lectures.length + 1
+        order: 0,
+        folder_id: ""
       });
     } catch (error) {
       console.error('❌ Error adding lecture:', error);
@@ -164,6 +188,77 @@ export default function EditCourse() {
     if (value === "") return true;
     const price = parseFloat(value);
     return !isNaN(price) && price >= 0;
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+
+    try {
+      setSaving(true);
+      const { data, error } = await supabase
+        .from('folders')
+        .insert([
+          {
+            folder_name: newFolderName.trim(),
+            course_id: courseId
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setFolders([...folders, data]);
+      setNewFolderName("");
+      setShowCreateFolder(false);
+    } catch (error) {
+      console.error('Error creating folder:', error);
+      setError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId) => {
+    // Check if folder has lectures
+    const folderLectures = lectures.filter(lecture => lecture.folder_id === folderId);
+    
+    if (folderLectures.length > 0) {
+      if (!window.confirm(`This folder contains ${folderLectures.length} lecture(s). All lectures in this folder will be moved to "No Folder". Are you sure you want to delete this folder?`)) {
+        return;
+      }
+      
+      // Move lectures to no folder (null folder_id)
+      for (const lecture of folderLectures) {
+        await supabase
+          .from('lectures')
+          .update({ folder_id: null })
+          .eq('id', lecture.id);
+      }
+    } else {
+      if (!window.confirm('Are you sure you want to delete this folder?')) {
+        return;
+      }
+    }
+
+    try {
+      setSaving(true);
+      const { error } = await supabase
+        .from('folders')
+        .delete()
+        .eq('id', folderId);
+
+      if (error) throw error;
+
+      setFolders(folders.filter(folder => folder.id !== folderId));
+      // Refresh lectures to update folder information
+      await fetchCourseData();
+    } catch (error) {
+      console.error('Error deleting folder:', error);
+      setError(error.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -287,32 +382,164 @@ export default function EditCourse() {
         </div>
       </div>
 
+      {/* Folders Management */}
+      <div className="bg-white rounded-lg shadow mb-8">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Course Folders</h2>
+            <button
+              onClick={() => setShowCreateFolder(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <FolderPlus size={20} />
+              Create Folder
+            </button>
+          </div>
+
+          {/* Create Folder Form */}
+          {showCreateFolder && (
+            <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Enter folder name"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-green-500"
+                  onKeyPress={(e) => e.key === 'Enter' && handleCreateFolder()}
+                />
+                <button
+                  onClick={handleCreateFolder}
+                  disabled={saving || !newFolderName.trim()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCreateFolder(false);
+                    setNewFolderName("");
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Existing Folders */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {folders.map((folder) => {
+              const folderLectureCount = lectures.filter(lecture => lecture.folder_id === folder.id).length;
+              return (
+                <div key={folder.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Folder className="text-blue-500" size={20} />
+                    <h3 className="font-medium flex-1">{folder.folder_name}</h3>
+                    <button
+                      onClick={() => handleDeleteFolder(folder.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    {folderLectureCount} lecture{folderLectureCount !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              );
+            })}
+            {folders.length === 0 && (
+              <div className="col-span-full text-center text-gray-500 py-8">
+                No folders created yet. Create a folder to organize your lectures.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Lectures */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-6">Course Lectures</h2>
           
-          {/* Existing Lectures */}
-          <div className="space-y-4 mb-8">
-            {lectures.map((lecture, index) => (
-              <div
-                key={lecture.id}
-                className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg"
-              >
-                <GripVertical className="text-gray-400" size={20} />
-                <div className="flex-1">
-                  <h3 className="font-medium">{lecture.title}</h3>
-                  <p className="text-sm text-gray-500">{lecture.description}</p>
+          {/* Lectures organized by folders */}
+          <div className="space-y-6 mb-8">
+            {/* No Folder Section */}
+            {lectures.filter(lecture => !lecture.folder_id).length > 0 && (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="font-medium text-gray-700 mb-4 flex items-center gap-2">
+                  <Folder className="text-gray-400" size={20} />
+                  No Folder ({lectures.filter(lecture => !lecture.folder_id).length} lectures)
+                </h3>
+                <div className="space-y-3">
+                  {lectures
+                    .filter(lecture => !lecture.folder_id)
+                    .map((lecture) => (
+                      <div
+                        key={lecture.id}
+                        className="flex items-center gap-4 p-3 border border-gray-100 rounded-lg bg-gray-50"
+                      >
+                        <GripVertical className="text-gray-400" size={20} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">{lecture.title}</h4>
+                          <p className="text-sm text-gray-500">{lecture.description}</p>
+                        </div>
+                        <div className="text-sm text-gray-500">{lecture.duration}</div>
+                        <button
+                          onClick={() => handleDeleteLecture(lecture.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
                 </div>
-                <div className="text-sm text-gray-500">{lecture.duration}</div>
-                <button
-                  onClick={() => handleDeleteLecture(lecture.id)}
-                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                >
-                  <Trash2 size={20} />
-                </button>
               </div>
-            ))}
+            )}
+
+            {/* Folder Sections */}
+            {folders.map((folder) => {
+              const folderLectures = lectures.filter(lecture => lecture.folder_id === folder.id);
+              if (folderLectures.length === 0) return null;
+
+              return (
+                <div key={folder.id} className="border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-700 mb-4 flex items-center gap-2">
+                    <Folder className="text-blue-500" size={20} />
+                    {folder.folder_name} ({folderLectures.length} lectures)
+                  </h3>
+                  <div className="space-y-3">
+                    {folderLectures.map((lecture) => (
+                      <div
+                        key={lecture.id}
+                        className="flex items-center gap-4 p-3 border border-gray-100 rounded-lg bg-gray-50"
+                      >
+                        <GripVertical className="text-gray-400" size={20} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">{lecture.title}</h4>
+                          <p className="text-sm text-gray-500">{lecture.description}</p>
+                        </div>
+                        <div className="text-sm text-gray-500">{lecture.duration}</div>
+                        <button
+                          onClick={() => handleDeleteLecture(lecture.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {lectures.length === 0 && (
+              <div className="text-center text-gray-500 py-8">
+                No lectures added yet. Add your first lecture below.
+              </div>
+            )}
           </div>
 
           {/* Add New Lecture */}
@@ -361,6 +588,28 @@ export default function EditCourse() {
                     rows="3"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Folder
+                  </label>
+                  <select
+                    value={newLecture.folder_id}
+                    onChange={(e) => setNewLecture(prev => ({ ...prev, folder_id: e.target.value || null }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">No Folder</option>
+                    {folders.map((folder) => (
+                      <option key={folder.id} value={folder.id}>
+                        {folder.folder_name}
+                      </option>
+                    ))}
+                  </select>
+                  {folders.length === 0 && (
+                    <p className="mt-1 text-sm text-gray-500">
+                      No folders available. Create a folder above to organize your lectures.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
