@@ -91,7 +91,7 @@ export default function EditCourse() {
         }
       });
     } catch (error) {
-      console.error('Error saving course:', error);
+      console.error('❌ Error saving course:', error);
       setError(error.message);
     } finally {
       setSaving(false);
@@ -101,13 +101,6 @@ export default function EditCourse() {
   const handleAddLecture = async () => {
     try {
       setSaving(true);
-      
-      // Debug logging
-      console.log('🔍 Attempting to add lecture with data:', {
-        ...newLecture,
-        course_id: courseId,
-        order: lectures.length + 1
-      });
       
       const { data, error } = await supabase
         .from('lectures')
@@ -124,8 +117,6 @@ export default function EditCourse() {
         console.error('❌ Supabase error:', error);
         throw error;
       }
-      
-      console.log('✅ Lecture added successfully:', data);
       setLectures([...lectures, data[0]]);
       setNewLecture({
         title: "",

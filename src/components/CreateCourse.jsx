@@ -65,7 +65,7 @@ export default function CreateCourse() {
         }
       });
     } catch (error) {
-      console.error('Error creating course:', error);
+      console.error('❌ Error creating course:', error);
       setError(error.message);
     } finally {
       setSaving(false);
@@ -102,6 +102,16 @@ export default function CreateCourse() {
             }}
             currentImage={courseData.image_url}
           />
+          {courseData.image_url && (
+            <div className="mt-4">
+              <img 
+                src={courseData.image_url} 
+                alt="Course preview" 
+                className="w-full h-48 object-cover rounded-lg"
+              />
+              <p className="text-sm text-gray-600 mt-2">Current image URL: {courseData.image_url}</p>
+            </div>
+          )}
         </div>
 
         {/* Course Details Section */}

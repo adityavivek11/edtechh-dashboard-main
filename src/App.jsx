@@ -5,7 +5,7 @@ import Signup from './components/Signup'
 import TeacherDashboard from './components/TeacherDashboard'
 import EditCourse from './components/EditCourse'
 import CreateCourse from './components/CreateCourse'
-import DatabaseChecker from './components/DatabaseChecker'
+
 import './App.css'
 
 // Protected Route component
@@ -47,7 +47,6 @@ function App() {
             }
           />
           <Route path="/courses/new" element={<CreateCourse />} />
-          <Route path="/debug/database" element={<DatabaseChecker />} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
         </Routes>
       </AuthProvider>

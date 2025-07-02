@@ -190,12 +190,6 @@ const HomeContent = memo(() => {
 
       if (studentsError) throw studentsError;
 
-      console.log('Stats fetched:', {
-        activeCourses: activeCoursesCount,
-        pendingDoubts: pendingDoubtsCount,
-        totalStudents: totalStudentsCount
-      });
-
       setStats({
         activeCourses: activeCoursesCount || 0,
         pendingDoubts: pendingDoubtsCount || 0,
@@ -950,9 +944,6 @@ const LecturesContent = memo(() => {
     try {
       setSaving(true);
       
-      // Debug logging
-      console.log('🔍 Attempting to create standalone lecture with data:', newLecture);
-      
       const { data, error } = await supabase
         .from('standalone_lectures')
         .insert([newLecture])
@@ -962,8 +953,6 @@ const LecturesContent = memo(() => {
         console.error('❌ Supabase error:', error);
         throw error;
       }
-      
-      console.log('✅ Standalone lecture created successfully:', data);
       setLectures([data[0], ...lectures]);
       setShowModal(false);
       setNewLecture({

@@ -53,13 +53,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  console.log('File received:', {
-    originalname: file.originalname,
-    size: file.size,
-    mimetype: file.mimetype,
-    path: file.path
-  });
-
   try {
     // Check if file exists and is readable
     if (!fs.existsSync(file.path)) {
@@ -68,7 +61,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     // Read file into buffer
     const fileBuffer = fs.readFileSync(file.path);
-    console.log('File read successfully, size:', fileBuffer.length);
 
     const uploadParams = {
       Bucket: process.env.R2_BUCKET,
@@ -77,9 +69,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       ContentType: file.mimetype,
     };
 
-    console.log('Starting upload to R2...');
     const result = await s3.send(new PutObjectCommand(uploadParams));
-    console.log('Upload successful:', result);
 
     // Cleanup temp file
     fs.unlinkSync(file.path);
@@ -88,8 +78,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const baseUrl = process.env.R2_PUBLIC_URL || 'https://cdn.atulyaayurveda.shop';
     const encodedFilename = encodeURIComponent(file.originalname);
     const publicUrl = `${baseUrl}/${encodedFilename}`;
-    
-    console.log('Generated public URL:', publicUrl);
     
     res.json({
       success: true,

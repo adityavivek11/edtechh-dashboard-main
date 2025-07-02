@@ -10,25 +10,17 @@ const UserManagementSidebar = memo(() => {
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('Fetching users from profiles table...');
       
       // First try to get all fields to see column names
       const { data: sampleData, error: sampleError } = await supabase
         .from('profiles')
         .select('*')
         .limit(1);
-        
-      if (sampleData && sampleData.length > 0) {
-        console.log('Sample data with column names:', sampleData[0]);
-      }
       
       const { data, error, status } = await supabase
         .from('profiles')
         .select('*')
         .order('full_name');
-
-      console.log('Supabase response status:', status);
-      console.log('Fetched data:', data);
       
       if (error) {
         console.error('Supabase error:', error);
@@ -36,10 +28,8 @@ const UserManagementSidebar = memo(() => {
       }
       
       if (data && data.length > 0) {
-        console.log(`Found ${data.length} users`);
         setUsers(data);
       } else {
-        console.log('No users found in the response');
         setUsers([]);
       }
     } catch (err) {
@@ -65,7 +55,6 @@ const UserManagementSidebar = memo(() => {
           table: 'profiles' 
         }, 
         (payload) => {
-          console.log('Profile change received:', payload);
           // Debounce the fetch to prevent excessive calls
           clearTimeout(timeoutId);
           timeoutId = setTimeout(() => {
@@ -74,8 +63,6 @@ const UserManagementSidebar = memo(() => {
         }
       )
       .subscribe();
-
-    console.log('Supabase real-time subscription set up');
 
     // Cleanup subscription on component unmount
     return () => {
@@ -88,7 +75,6 @@ const UserManagementSidebar = memo(() => {
   const toggleUserStatus = useCallback(async (userId, currentStatus) => {
     try {
       const newStatus = !currentStatus;
-      console.log(`Toggling user ${userId} status from ${currentStatus} to ${newStatus}`);
       
       // Update local state immediately for better user experience
       setUsers(prevUsers => 
@@ -108,8 +94,6 @@ const UserManagementSidebar = memo(() => {
         })
         .eq('id', userId)
         .select();
-
-      console.log('Update response:', data);
       
       if (error) {
         console.error('Update error:', error);
@@ -123,8 +107,6 @@ const UserManagementSidebar = memo(() => {
         );
         throw error;
       }
-
-      console.log('User status updated successfully');
       // The UI will update via the subscription if needed
     } catch (err) {
       console.error('Error updating user status:', err);

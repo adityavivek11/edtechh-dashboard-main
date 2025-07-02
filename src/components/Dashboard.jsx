@@ -15,7 +15,6 @@ const Dashboard = () => {
   useEffect(() => {
     if (location.state?.message) {
       // You can show a toast notification here
-      console.log(location.state.message);
     }
   }, [location.state]);
 

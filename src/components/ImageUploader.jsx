@@ -2,10 +2,7 @@ import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, X, CheckCircle, AlertCircle, Loader2, Image } from 'lucide-react';
 
-const BUNNY_API_KEY = import.meta.env.VITE_BUNNY_API_KEY;
-const BUNNY_STORAGE_ZONE = import.meta.env.VITE_BUNNY_STORAGE_ZONE;
-const BUNNY_REGION = import.meta.env.VITE_BUNNY_REGION || 'sg';
-const BUNNY_PULLZONE = import.meta.env.VITE_BUNNY_PULLZONE;
+const UPLOAD_SERVER_URL = import.meta.env.VITE_UPLOAD_SERVER_URL || 'http://localhost:3000';
 
 export default function ImageUploader({ onUploadComplete }) {
   const [uploadStatus, setUploadStatus] = useState({
@@ -18,9 +15,8 @@ export default function ImageUploader({ onUploadComplete }) {
     speed: '0 B/s'
   });
 
-  const uploadToBunny = async (file) => {
+  const uploadToR2 = async (file) => {
     try {
-      console.log('Starting image upload to Bunny.net using fetch API');
       setUploadStatus({ 
         uploading: true, 
         progress: 0, 
@@ -31,21 +27,11 @@ export default function ImageUploader({ onUploadComplete }) {
         speed: '0 B/s'
       });
 
-      // Create a unique filename
-      const timestamp = new Date().getTime();
-      const safeFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-      const fileName = `${timestamp}-${safeFileName}`;
-      const urlPath = `/images/${fileName}`;
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      formData.append('file', file);
 
-      console.log('Generated filename for upload:', fileName);
-
-      // Create a URL for the upload
-      const uploadUrl = `https://${BUNNY_REGION}.storage.bunnycdn.com/${BUNNY_STORAGE_ZONE}${urlPath}`;
-      console.log('Uploading to:', uploadUrl);
-      console.log('File type:', file.type);
-      console.log('File size:', file.size);
-
-      // Simulate progress since fetch doesn't have progress events
+      // Progress simulation since fetch doesn't have real progress events
       const progressInterval = setInterval(() => {
         setUploadStatus(prev => {
           const newProgress = prev.progress + 5;
@@ -59,29 +45,24 @@ export default function ImageUploader({ onUploadComplete }) {
       }, 500);
 
       try {
-        // Use fetch API to upload the file
-        const response = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: {
-            'AccessKey': BUNNY_API_KEY,
-            'Content-Type': file.type
-          },
-          body: file
+        // Upload to Express server which handles R2 upload
+        const response = await fetch(`${UPLOAD_SERVER_URL}/upload`, {
+          method: 'POST',
+          body: formData
         });
 
         clearInterval(progressInterval);
         
+        const result = await response.json();
+        
         if (!response.ok) {
           console.error('Upload failed with status:', response.status);
-          let errorText = '';
-          try {
-            const errorData = await response.text();
-            console.error('Error response:', errorData);
-            errorText = errorData;
-          } catch (e) {
-            console.error('Could not read error response');
-          }
-          throw new Error(`Upload failed with status ${response.status}: ${errorText}`);
+          console.error('Error response:', result);
+          throw new Error(result.error || `Upload failed with status ${response.status}`);
+        }
+
+        if (!result.success) {
+          throw new Error(result.error || 'Upload failed');
         }
 
         // Set progress to 100% when complete
@@ -93,11 +74,8 @@ export default function ImageUploader({ onUploadComplete }) {
           uploading: false
         }));
 
-        // Construct the CDN URL
-        const cdnUrl = `https://${BUNNY_PULLZONE}.b-cdn.net${urlPath}`;
-        console.log('Image upload successful, CDN URL:', cdnUrl);
-        
-        onUploadComplete(cdnUrl);
+        // R2 uploader returns video_url regardless of file type
+        onUploadComplete(result.video_url);
 
       } catch (fetchError) {
         clearInterval(progressInterval);
@@ -127,7 +105,7 @@ export default function ImageUploader({ onUploadComplete }) {
 
   const onDrop = useCallback(acceptedFiles => {
     if (acceptedFiles.length > 0) {
-      uploadToBunny(acceptedFiles[0]);
+      uploadToR2(acceptedFiles[0]);
     }
   }, []);
 

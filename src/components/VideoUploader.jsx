@@ -17,7 +17,6 @@ export default function VideoUploader({ onUploadComplete }) {
 
   const uploadToR2 = async (file) => {
     try {
-      console.log('Starting video upload to Cloudflare R2 via Express server');
       setUploadStatus({ 
         uploading: true, 
         progress: 0, 
@@ -26,12 +25,6 @@ export default function VideoUploader({ onUploadComplete }) {
         loaded: '0 B',
         total: formatBytes(file.size),
         speed: '0 B/s'
-      });
-
-      console.log('File details:', {
-        name: file.name,
-        type: file.type,
-        size: file.size
       });
 
       // Create FormData for multipart upload
@@ -81,8 +74,6 @@ export default function VideoUploader({ onUploadComplete }) {
           uploading: false
         }));
 
-        console.log('Video upload successful, R2 URL:', result.video_url);
-        
         onUploadComplete({
           video_url: result.video_url,
           thumbnail_url: result.thumbnail_url || '',
