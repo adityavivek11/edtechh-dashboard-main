@@ -949,13 +949,21 @@ const LecturesContent = memo(() => {
   const handleCreateLecture = useCallback(async () => {
     try {
       setSaving(true);
+      
+      // Debug logging
+      console.log('🔍 Attempting to create standalone lecture with data:', newLecture);
+      
       const { data, error } = await supabase
         .from('standalone_lectures')
         .insert([newLecture])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        throw error;
+      }
       
+      console.log('✅ Standalone lecture created successfully:', data);
       setLectures([data[0], ...lectures]);
       setShowModal(false);
       setNewLecture({
@@ -967,7 +975,7 @@ const LecturesContent = memo(() => {
         is_active: true
       });
     } catch (error) {
-      console.error('Error creating lecture:', error);
+      console.error('❌ Error creating lecture:', error);
       setError(error.message);
     } finally {
       setSaving(false);

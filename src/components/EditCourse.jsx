@@ -101,6 +101,14 @@ export default function EditCourse() {
   const handleAddLecture = async () => {
     try {
       setSaving(true);
+      
+      // Debug logging
+      console.log('🔍 Attempting to add lecture with data:', {
+        ...newLecture,
+        course_id: courseId,
+        order: lectures.length + 1
+      });
+      
       const { data, error } = await supabase
         .from('lectures')
         .insert([
@@ -112,7 +120,12 @@ export default function EditCourse() {
         ])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        throw error;
+      }
+      
+      console.log('✅ Lecture added successfully:', data);
       setLectures([...lectures, data[0]]);
       setNewLecture({
         title: "",
@@ -123,7 +136,7 @@ export default function EditCourse() {
         order: lectures.length + 1
       });
     } catch (error) {
-      console.error('Error adding lecture:', error);
+      console.error('❌ Error adding lecture:', error);
       setError(error.message);
     } finally {
       setSaving(false);
