@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, memo } from "react";
-import { BookOpen, HelpCircle, Video, Users, Home, LogOut, X, Loader2, Image as ImageIcon, GripVertical, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { BookOpen, HelpCircle, Video, Users, Home, LogOut, X, Loader2, Image as ImageIcon, GripVertical, Trash2, ChevronDown, ChevronRight, UserCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -39,6 +39,7 @@ export default function TeacherDashboard() {
     { id: "courses", label: "Courses", icon: <BookOpen size={20} /> },
     { id: "lectures", label: "Standalone Lectures", icon: <Video size={20} /> },
     { id: "carousel", label: "Carousel Images", icon: <ImageIcon size={20} /> },
+    { id: "course-users", label: "Course User Management", icon: <UserCheck size={20} /> },
     { id: "users", label: "Users", icon: <Users size={20} /> }
   ], []);
 
@@ -53,6 +54,8 @@ export default function TeacherDashboard() {
         return <LecturesContent />;
       case "carousel":
         return <CarouselContent />;
+      case "course-users":
+        return <CourseUserManagementContent />;
       case "users":
         return <UsersContent />;
       default:
@@ -1557,6 +1560,314 @@ const CarouselContent = memo(() => {
           </div>
         </div>
       )}
+    </div>
+  );
+});
+
+const CourseUserManagementContent = memo(() => {
+  const [courses, setCourses] = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [courseUsers, setCourseUsers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchCourses = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('courses')
+        .select('id, title, description, allowed_users')
+        .order('title', { ascending: true });
+
+      if (error) throw error;
+      setCourses(data || []);
+    } catch (error) {
+      console.error('Error fetching courses:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchCourseUsers = useCallback(async (course) => {
+    if (!course || !course.allowed_users || course.allowed_users.length === 0) {
+      setCourseUsers([]);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      // Fetch user profiles for the allowed users
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', course.allowed_users);
+
+      if (error) throw error;
+      setCourseUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching course users:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchAllUsers = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .order('full_name', { ascending: true });
+
+      if (error) throw error;
+      setAllUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      setError(error.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCourses();
+    fetchAllUsers();
+  }, [fetchCourses, fetchAllUsers]);
+
+  useEffect(() => {
+    if (selectedCourse) {
+      fetchCourseUsers(selectedCourse);
+    }
+  }, [selectedCourse, fetchCourseUsers]);
+
+  const handleAddUserToCourse = useCallback(async (userId) => {
+    if (!selectedCourse || !userId) return;
+
+    try {
+      setSaving(true);
+      
+      // Get current allowed_users array and add the new user
+      const currentAllowedUsers = selectedCourse.allowed_users || [];
+      const updatedAllowedUsers = [...currentAllowedUsers, userId];
+
+      const { data, error } = await supabase
+        .from('courses')
+        .update({ allowed_users: updatedAllowedUsers })
+        .eq('id', selectedCourse.id)
+        .select('id, title, description, allowed_users');
+
+      if (error) throw error;
+      
+      // Update the selected course and courses list
+      const updatedCourse = data[0];
+      setSelectedCourse(updatedCourse);
+      setCourses(prevCourses => 
+        prevCourses.map(course => 
+          course.id === selectedCourse.id ? updatedCourse : course
+        )
+      );
+      
+      // Refresh course users
+      await fetchCourseUsers(updatedCourse);
+    } catch (error) {
+      console.error('Error adding user to course:', error);
+      setError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedCourse, fetchCourseUsers]);
+
+  const handleRemoveUserFromCourse = useCallback(async (userId) => {
+    if (!selectedCourse || !userId) return;
+
+    if (!window.confirm('Are you sure you want to remove this user from the course?')) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Get current allowed_users array and remove the user
+      const currentAllowedUsers = selectedCourse.allowed_users || [];
+      const updatedAllowedUsers = currentAllowedUsers.filter(id => id !== userId);
+
+      const { data, error } = await supabase
+        .from('courses')
+        .update({ allowed_users: updatedAllowedUsers })
+        .eq('id', selectedCourse.id)
+        .select('id, title, description, allowed_users');
+
+      if (error) throw error;
+      
+      // Update the selected course and courses list
+      const updatedCourse = data[0];
+      setSelectedCourse(updatedCourse);
+      setCourses(prevCourses => 
+        prevCourses.map(course => 
+          course.id === selectedCourse.id ? updatedCourse : course
+        )
+      );
+      
+      // Refresh course users
+      await fetchCourseUsers(updatedCourse);
+    } catch (error) {
+      console.error('Error removing user from course:', error);
+      setError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedCourse, fetchCourseUsers]);
+
+  if (loading && courses.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gray-500">Loading courses...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 text-red-600 p-4 rounded-lg">
+        Error: {error}
+      </div>
+    );
+  }
+
+  const allowedUserIds = new Set(selectedCourse?.allowed_users || []);
+  const availableUsers = allUsers.filter(user => !allowedUserIds.has(user.id));
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+             <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white">
+         <h2 className="text-2xl font-bold mb-2">Course User Management</h2>
+         <p className="text-blue-100">Manage user access permissions for your courses</p>
+       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Course Selection */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold mb-4">Select Course</h3>
+          <div className="space-y-2">
+            {courses.map((course) => (
+              <button
+                key={course.id}
+                onClick={() => setSelectedCourse(course)}
+                className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                  selectedCourse?.id === course.id
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <div className="font-medium">{course.title}</div>
+                <div className="text-sm text-gray-500 mt-1">{course.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Enrolled Users */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+                     <h3 className="text-lg font-semibold mb-4">
+             Allowed Users
+             {selectedCourse && (
+               <span className="text-sm font-normal text-gray-500 ml-2">
+                 ({selectedCourse.allowed_users?.length || 0})
+               </span>
+             )}
+           </h3>
+          
+                     {!selectedCourse ? (
+             <div className="text-center py-8 text-gray-500">
+               <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+               <p>Select a course to view allowed users</p>
+             </div>
+          ) : loading ? (
+            <div className="text-center py-8 text-gray-500">
+              <Loader2 className="mx-auto h-8 w-8 animate-spin mb-2" />
+              <p>Loading users...</p>
+            </div>
+                     ) : courseUsers.length === 0 ? (
+             <div className="text-center py-8 text-gray-500">
+               <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+               <p>No users allowed in this course</p>
+             </div>
+          ) : (
+                         <div className="space-y-2 max-h-96 overflow-y-auto">
+               {courseUsers.map((courseUser) => (
+                 <div
+                   key={courseUser.id}
+                   className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
+                 >
+                   <div>
+                     <div className="font-medium">
+                       {courseUser.full_name || 'Unknown User'}
+                     </div>
+                     <div className="text-xs text-gray-400">
+                       User ID: {courseUser.id}
+                     </div>
+                   </div>
+                   <button
+                     onClick={() => handleRemoveUserFromCourse(courseUser.id)}
+                     disabled={saving}
+                     className="text-red-600 hover:text-red-800 p-1 disabled:opacity-50"
+                     title="Remove from course"
+                   >
+                     <X size={18} />
+                   </button>
+                 </div>
+               ))}
+             </div>
+          )}
+        </div>
+
+        {/* Available Users */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold mb-4">
+            Available Users
+            {selectedCourse && (
+              <span className="text-sm font-normal text-gray-500 ml-2">
+                ({availableUsers.length})
+              </span>
+            )}
+          </h3>
+          
+          {!selectedCourse ? (
+            <div className="text-center py-8 text-gray-500">
+              <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+              <p>Select a course to view available users</p>
+            </div>
+                     ) : availableUsers.length === 0 ? (
+             <div className="text-center py-8 text-gray-500">
+               <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+               <p>All users are allowed in this course</p>
+             </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {availableUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
+                >
+                                     <div>
+                     <div className="font-medium">{user.full_name || 'Unknown User'}</div>
+                   </div>
+                  <button
+                    onClick={() => handleAddUserToCourse(user.id)}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                    title="Add to course"
+                  >
+                    Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 });
