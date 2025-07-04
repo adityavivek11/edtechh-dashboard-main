@@ -1569,9 +1569,11 @@ const CourseUserManagementContent = memo(() => {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [courseUsers, setCourseUsers] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
+  const [enrollmentRequests, setEnrollmentRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('allowed-users');
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -1630,6 +1632,30 @@ const CourseUserManagementContent = memo(() => {
     }
   }, []);
 
+  const fetchEnrollmentRequests = useCallback(async (courseId) => {
+    if (!courseId) {
+      setEnrollmentRequests([]);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('enrollment_requests')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setEnrollmentRequests(data || []);
+    } catch (error) {
+      console.error('Error fetching enrollment requests:', error);
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCourses();
     fetchAllUsers();
@@ -1638,8 +1664,9 @@ const CourseUserManagementContent = memo(() => {
   useEffect(() => {
     if (selectedCourse) {
       fetchCourseUsers(selectedCourse);
+      fetchEnrollmentRequests(selectedCourse.id);
     }
-  }, [selectedCourse, fetchCourseUsers]);
+  }, [selectedCourse, fetchCourseUsers, fetchEnrollmentRequests]);
 
   const handleAddUserToCourse = useCallback(async (userId) => {
     if (!selectedCourse || !userId) return;
@@ -1719,6 +1746,118 @@ const CourseUserManagementContent = memo(() => {
     }
   }, [selectedCourse, fetchCourseUsers]);
 
+  const handleAcceptEnrollmentRequest = useCallback(async (request) => {
+    if (!selectedCourse || !request) return;
+
+    try {
+      setSaving(true);
+      
+      // Optimistically remove request from UI
+      setEnrollmentRequests(prev => 
+        prev.filter(req => !(req.user_id === request.user_id && req.course_id === request.course_id))
+      );
+      
+      // Add user to the course's allowed_users array
+      const currentAllowedUsers = selectedCourse.allowed_users || [];
+      const updatedAllowedUsers = [...currentAllowedUsers, request.user_id];
+
+      // Update the course
+      const { data: courseData, error: courseError } = await supabase
+        .from('courses')
+        .update({ allowed_users: updatedAllowedUsers })
+        .eq('id', selectedCourse.id)
+        .select('id, title, description, allowed_users');
+
+      if (courseError) throw courseError;
+      
+      // Create enrollment log in course_enrollments table
+      const { error: enrollmentError } = await supabase
+        .from('course_enrollments')
+        .insert({
+          user_id: request.user_id,
+          course_id: request.course_id
+        });
+
+      if (enrollmentError) {
+        console.warn('Failed to create enrollment log:', enrollmentError);
+        // Continue as the main action (adding user) succeeded
+      }
+      
+      // Delete the enrollment request
+      const { error: deleteError } = await supabase
+        .from('enrollment_requests')
+        .delete()
+        .eq('user_id', request.user_id)
+        .eq('course_id', request.course_id);
+
+      if (deleteError) {
+        console.warn('Failed to delete enrollment request:', deleteError);
+        // Still continue as the main action (adding user) succeeded
+      }
+      
+      // Update the selected course and courses list
+      const updatedCourse = courseData[0];
+      setSelectedCourse(updatedCourse);
+      setCourses(prevCourses => 
+        prevCourses.map(course => 
+          course.id === selectedCourse.id ? updatedCourse : course
+        )
+      );
+      
+      // Refresh data to ensure consistency
+      await fetchCourseUsers(updatedCourse);
+      await fetchEnrollmentRequests(selectedCourse.id);
+    } catch (error) {
+      console.error('Error accepting enrollment request:', error);
+      setError(error.message);
+      // Refresh to revert optimistic update if there was an error
+      await fetchEnrollmentRequests(selectedCourse.id);
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedCourse, fetchCourseUsers, fetchEnrollmentRequests]);
+
+  const handleRejectEnrollmentRequest = useCallback(async (request) => {
+    if (!request) return;
+
+    if (!window.confirm('Are you sure you want to reject this enrollment request?')) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Optimistically remove request from UI
+      setEnrollmentRequests(prev => 
+        prev.filter(req => !(req.user_id === request.user_id && req.course_id === request.course_id))
+      );
+      
+      // Delete the enrollment request
+      const { error } = await supabase
+        .from('enrollment_requests')
+        .delete()
+        .eq('user_id', request.user_id)
+        .eq('course_id', request.course_id);
+
+      if (error) {
+        console.error('Error deleting enrollment request:', error);
+        // Refresh to revert optimistic update if there was an error
+        await fetchEnrollmentRequests(selectedCourse?.id);
+        throw error;
+      }
+      
+      // Refresh enrollment requests to ensure consistency
+      await fetchEnrollmentRequests(selectedCourse?.id);
+    } catch (error) {
+      console.error('Error rejecting enrollment request:', error);
+      setError(error.message);
+      // Refresh to revert optimistic update if there was an error
+      await fetchEnrollmentRequests(selectedCourse?.id);
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedCourse, fetchEnrollmentRequests]);
+
   if (loading && courses.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1741,133 +1880,216 @@ const CourseUserManagementContent = memo(() => {
   return (
     <div className="space-y-6">
       {/* Header */}
-             <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white">
-         <h2 className="text-2xl font-bold mb-2">Course User Management</h2>
-         <p className="text-blue-100">Manage user access permissions for your courses</p>
-       </div>
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white">
+        <h2 className="text-2xl font-bold mb-2">Course User Management</h2>
+        <p className="text-blue-100">Manage user access permissions and enrollment requests</p>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Course Selection */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold mb-4">Select Course</h3>
-          <div className="space-y-2">
-            {courses.map((course) => (
-              <button
-                key={course.id}
-                onClick={() => setSelectedCourse(course)}
-                className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                  selectedCourse?.id === course.id
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <div className="font-medium">{course.title}</div>
-                <div className="text-sm text-gray-500 mt-1">{course.description}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Enrolled Users */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-                     <h3 className="text-lg font-semibold mb-4">
-             Allowed Users
-             {selectedCourse && (
-               <span className="text-sm font-normal text-gray-500 ml-2">
-                 ({selectedCourse.allowed_users?.length || 0})
-               </span>
-             )}
-           </h3>
-          
-                     {!selectedCourse ? (
-             <div className="text-center py-8 text-gray-500">
-               <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-               <p>Select a course to view allowed users</p>
-             </div>
-          ) : loading ? (
-            <div className="text-center py-8 text-gray-500">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin mb-2" />
-              <p>Loading users...</p>
-            </div>
-                     ) : courseUsers.length === 0 ? (
-             <div className="text-center py-8 text-gray-500">
-               <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-               <p>No users allowed in this course</p>
-             </div>
-          ) : (
-                         <div className="space-y-2 max-h-96 overflow-y-auto">
-               {courseUsers.map((courseUser) => (
-                 <div
-                   key={courseUser.id}
-                   className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
-                 >
-                   <div>
-                     <div className="font-medium">
-                       {courseUser.full_name || 'Unknown User'}
-                     </div>
-                     <div className="text-xs text-gray-400">
-                       User ID: {courseUser.id}
-                     </div>
-                   </div>
-                   <button
-                     onClick={() => handleRemoveUserFromCourse(courseUser.id)}
-                     disabled={saving}
-                     className="text-red-600 hover:text-red-800 p-1 disabled:opacity-50"
-                     title="Remove from course"
-                   >
-                     <X size={18} />
-                   </button>
-                 </div>
-               ))}
-             </div>
-          )}
-        </div>
-
-        {/* Available Users */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold mb-4">
-            Available Users
-            {selectedCourse && (
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                ({availableUsers.length})
-              </span>
-            )}
-          </h3>
-          
-          {!selectedCourse ? (
-            <div className="text-center py-8 text-gray-500">
-              <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-              <p>Select a course to view available users</p>
-            </div>
-                     ) : availableUsers.length === 0 ? (
-             <div className="text-center py-8 text-gray-500">
-               <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-               <p>All users are allowed in this course</p>
-             </div>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {availableUsers.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
-                >
-                                     <div>
-                     <div className="font-medium">{user.full_name || 'Unknown User'}</div>
-                   </div>
-                  <button
-                    onClick={() => handleAddUserToCourse(user.id)}
-                    disabled={saving}
-                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                    title="Add to course"
-                  >
-                    Add
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Course Selection */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold mb-4">Select Course</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {courses.map((course) => (
+            <button
+              key={course.id}
+              onClick={() => setSelectedCourse(course)}
+              className={`text-left p-4 rounded-lg border transition-colors ${
+                selectedCourse?.id === course.id
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <div className="font-medium">{course.title}</div>
+              <div className="text-sm text-gray-500 mt-1">{course.description}</div>
+            </button>
+          ))}
         </div>
       </div>
+
+      {selectedCourse && (
+        <div className="bg-white rounded-lg shadow-sm">
+          {/* Tab Navigation */}
+          <div className="border-b border-gray-200">
+            <nav className="flex space-x-8 px-6">
+              <button
+                onClick={() => setActiveTab('allowed-users')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'allowed-users'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Allowed Users ({selectedCourse.allowed_users?.length || 0})
+              </button>
+              <button
+                onClick={() => setActiveTab('enrollment-requests')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'enrollment-requests'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Enrollment Requests ({enrollmentRequests.length})
+              </button>
+            </nav>
+          </div>
+
+          {/* Tab Content */}
+          <div className="p-6">
+            {activeTab === 'allowed-users' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Enrolled Users */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">
+                    Allowed Users
+                    <span className="text-sm font-normal text-gray-500 ml-2">
+                      ({selectedCourse.allowed_users?.length || 0})
+                    </span>
+                  </h3>
+                  
+                  {loading ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin mb-2" />
+                      <p>Loading users...</p>
+                    </div>
+                  ) : courseUsers.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                      <p>No users allowed in this course</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {courseUsers.map((courseUser) => (
+                        <div
+                          key={courseUser.id}
+                          className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
+                        >
+                          <div>
+                            <div className="font-medium">
+                              {courseUser.full_name || 'Unknown User'}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              User ID: {courseUser.id}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveUserFromCourse(courseUser.id)}
+                            disabled={saving}
+                            className="text-red-600 hover:text-red-800 p-1 disabled:opacity-50"
+                            title="Remove from course"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Available Users */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">
+                    Available Users
+                    <span className="text-sm font-normal text-gray-500 ml-2">
+                      ({availableUsers.length})
+                    </span>
+                  </h3>
+                  
+                  {availableUsers.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                      <p>All users are allowed in this course</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {availableUsers.map((user) => (
+                        <div
+                          key={user.id}
+                          className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
+                        >
+                          <div>
+                            <div className="font-medium">{user.full_name || 'Unknown User'}</div>
+                          </div>
+                          <button
+                            onClick={() => handleAddUserToCourse(user.id)}
+                            disabled={saving}
+                            className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                            title="Add to course"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'enrollment-requests' && (
+              <div>
+                <h3 className="text-lg font-semibold mb-4">
+                  Enrollment Requests
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    ({enrollmentRequests.length})
+                  </span>
+                </h3>
+                
+                {loading ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Loader2 className="mx-auto h-8 w-8 animate-spin mb-2" />
+                    <p>Loading enrollment requests...</p>
+                  </div>
+                ) : enrollmentRequests.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <UserCheck className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                    <p>No enrollment requests for this course</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {enrollmentRequests.map((request) => (
+                      <div
+                        key={`${request.user_id}-${request.course_id}`}
+                        className="flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-gray-50"
+                      >
+                        <div>
+                          <div className="font-medium">{request.user_name || 'Unknown User'}</div>
+                          <div className="text-xs text-gray-400">
+                            User ID: {request.user_id}
+                          </div>
+                          {request.created_at && (
+                            <div className="text-xs text-gray-400">
+                              Requested: {new Date(request.created_at).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleAcceptEnrollmentRequest(request)}
+                            disabled={saving}
+                            className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                            title="Accept request"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => handleRejectEnrollmentRequest(request)}
+                            disabled={saving}
+                            className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 disabled:opacity-50"
+                            title="Reject request"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 });
