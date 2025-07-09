@@ -27,64 +27,94 @@ export default function VideoUploader({ onUploadComplete }) {
         speed: '0 B/s'
       });
 
-      // Create FormData for multipart upload
-      const formData = new FormData();
-      formData.append('file', file);
+      // Step 1: Get presigned URL from server
+      const urlResponse = await fetch(`${UPLOAD_SERVER_URL}/generate-upload-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type
+        })
+      });
 
-      // Progress simulation since fetch doesn't have real progress events
-      const progressInterval = setInterval(() => {
-        setUploadStatus(prev => {
-          const newProgress = prev.progress + 5;
-          return {
-            ...prev,
-            progress: newProgress > 90 ? 90 : newProgress,
-            loaded: formatBytes((file.size * newProgress) / 100),
-            speed: formatBytes((file.size * 5) / 100) + '/s'
-          };
-        });
-      }, 500);
-
-      try {
-        // Upload to Express server which handles R2 upload
-        const response = await fetch(`${UPLOAD_SERVER_URL}/upload`, {
-          method: 'POST',
-          body: formData
-        });
-
-        clearInterval(progressInterval);
-        
-        const result = await response.json();
-        
-        if (!response.ok) {
-          console.error('Upload failed with status:', response.status);
-          console.error('Error response:', result);
-          throw new Error(result.error || `Upload failed with status ${response.status}`);
-        }
-
-        if (!result.success) {
-          throw new Error(result.error || 'Upload failed');
-        }
-
-        // Set progress to 100% when complete
-        setUploadStatus(prev => ({
-          ...prev,
-          progress: 100,
-          loaded: formatBytes(file.size),
-          success: true,
-          uploading: false
-        }));
-
-        onUploadComplete({
-          video_url: result.video_url,
-          thumbnail_url: result.thumbnail_url || '',
-          duration: result.duration || ''
-        });
-
-      } catch (fetchError) {
-        clearInterval(progressInterval);
-        console.error('Fetch error:', fetchError);
-        throw fetchError;
+      const urlData = await urlResponse.json();
+      if (!urlData.success) {
+        throw new Error(urlData.error || 'Failed to generate upload URL');
       }
+
+      // Step 2: Upload directly to R2 using presigned URL with progress tracking
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        let startTime = Date.now();
+
+        // Progress event handler
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded / event.total) * 100);
+            const currentTime = Date.now();
+            const timeElapsed = (currentTime - startTime) / 1000; // seconds
+            const bytesLoaded = event.loaded;
+            const bytesPerSecond = bytesLoaded / timeElapsed;
+            
+            setUploadStatus(prev => ({
+              ...prev,
+              progress: progress,
+              loaded: formatBytes(bytesLoaded),
+              total: formatBytes(event.total),
+              speed: formatBytes(bytesPerSecond) + '/s'
+            }));
+          }
+        });
+
+        // Load event handler (upload complete)
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            setUploadStatus(prev => ({
+              ...prev,
+              progress: 100,
+              loaded: formatBytes(file.size),
+              success: true,
+              uploading: false
+            }));
+
+            onUploadComplete({
+              video_url: urlData.publicUrl,
+              thumbnail_url: '',
+              duration: ''
+            });
+
+            resolve({
+              success: true,
+              video_url: urlData.publicUrl,
+              thumbnail_url: '',
+              duration: ''
+            });
+          } else {
+            console.error('Upload failed with status:', xhr.status);
+            throw new Error(`Upload failed with status ${xhr.status}`);
+          }
+        });
+
+        // Error event handler
+        xhr.addEventListener('error', () => {
+          console.error('XHR error:', xhr.statusText);
+          throw new Error('Network error during upload');
+        });
+
+        // Abort event handler
+        xhr.addEventListener('abort', () => {
+          console.error('Upload aborted');
+          throw new Error('Upload was aborted');
+        });
+
+        // Open and send the request directly to R2
+        xhr.open('PUT', urlData.presignedUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.send(file);
+      });
+
     } catch (error) {
       console.error('Upload error:', error);
       setUploadStatus(prev => ({
